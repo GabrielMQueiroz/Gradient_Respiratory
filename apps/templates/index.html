@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contactless Eulerian Respiratory Deconvolution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        bio: {
+                            50: '#ecfdf5',
+                            500: '#10b981',
+                            600: '#059669',
+                            DEFAULT: '#00f0a8'
+                        },
+                        vitals: {
+                            cyan: '#06b6d4',
+                            amber: '#f59e0b',
+                            rose: '#f43f5e'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #070a12;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+        .scanline {
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.22) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+            background-size: 100% 3px, 4px 100%;
+            pointer-events: none;
+        }
+        .hud-border {
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.04);
+        }
+        .hud-border-warning {
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.1);
+        }
+        .glow-bio {
+            text-shadow: 0 0 12px rgba(0, 240, 168, 0.45);
+        }
+        .glow-alert {
+            text-shadow: 0 0 14px rgba(244, 63, 94, 0.75);
+            animation: pulse-alert 1.2s infinite;
+        }
+        @keyframes pulse-alert {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.65; transform: scale(0.99); }
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            background: #1e293b;
+            height: 6px;
+            border-radius: 3px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #00f0a8;
+            cursor: pointer;
+            box-shadow: 0 0 8px #00f0a8;
+            transition: transform 0.1s ease;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+    </style>
+</head>
+<body class="min-h-screen font-sans flex flex-col antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
+
+    <header class="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 py-3 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="h-9 w-9 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-400 p-[1px] flex items-center justify-center shadow-lg shadow-emerald-950">
+                    <div class="h-full w-full bg-slate-950 rounded-[7px] flex items-center justify-center">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                            Eulerian Respiratory Deconvolution
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">LIVE AI BACKEND</span>
+                        </h1>
+                    </div>
+                    <p class="text-xs text-slate-400 hidden sm:block">Anti-Blooming & Artifact-Gated Eulerian Motion Amplification via Pose Tracking</p>
+                </div>
+            </div>
+
+            <!-- Diagnostics & System Vitals Bar -->
+            <div class="flex items-center gap-3 text-xs font-mono">
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span id="fpsDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span class="text-slate-400">FPS:</span>
+                    <span id="fpsReadout" class="text-emerald-400 font-bold">00</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span class="text-slate-400">SERVER:</span>
+                    <span class="text-cyan-400 font-medium">CONNECTED</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span class="text-slate-400">STATUS:</span>
+                    <span id="motionStatusBadge" class="text-emerald-400 font-medium">STABLE</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        <!-- Left Column: Live Camera, Viewport, ROI and Parameter Tuning Controls -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+            
+            <!-- Video & Eulerian Viewer Container -->
+            <div class="relative bg-slate-950 rounded-xl p-3 hud-border overflow-hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>
+                        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Live Processing Feed & MediaPipe Chest ROI</h2>
+                    </div>
+                </div>
+
+                <div id="canvasContainer" class="relative w-full aspect-[4/3] bg-black rounded-lg overflow-hidden flex items-center justify-center select-none shadow-inner">
+                    <img id="videoStream" src="/video_feed" class="w-full h-full object-contain" />
+                    <div class="scanline absolute inset-0 pointer-events-none opacity-30"></div>
+                </div>
+            </div>
+
+            <!-- Unified Algorithm Tuning & Anti-Artifact Controls -->
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                        </svg>
+                        Backend Algorithm Tuning
+                    </span>
+                    <button id="btnResetParams" class="text-[11px] font-mono text-slate-400 hover:text-emerald-400 underline">Reset Defaults</button>
+                </div>
+
+                <!-- Motion Energy & Artifact Gate Meter -->
+                <div class="bg-slate-900/80 rounded-lg p-2.5 border border-slate-800 space-y-1.5 mb-2">
+                    <div class="flex items-center justify-between text-xs font-mono">
+                        <span class="text-slate-400">Current Motion Energy:</span>
+                        <div class="flex items-center gap-2">
+                            <span id="motionEnergyVal" class="text-cyan-400 font-bold">0.02 (Calm)</span>
+                            <span id="gateTripRatio" class="text-[10px] text-slate-500">Ratio: 0.1x</span>
+                        </div>
+                    </div>
+                    <div class="relative w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                        <div id="motionEnergyBar" class="h-full bg-emerald-500 transition-all duration-75" style="width: 10%;"></div>
+                        <!-- Visual Marker for Artifact Threshold -->
+                        <div id="thresholdMarkerLine" class="absolute top-0 bottom-0 w-1 bg-amber-400 shadow-[0_0_8px_#f59e0b] pointer-events-none" style="left: 22%;"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                        <span>0.00 (Resting)</span>
+                        <span id="motionGateMarker" class="text-amber-400 font-semibold">Threshold: 0.22</span>
+                        <span>1.00+ (Extreme Motion)</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3.5">
+                    <!-- 1. Magnification Gain (Alpha) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Magnification Gain (α):</span>
+                            <span id="alphaValText" class="text-emerald-400 font-bold">35x</span>
+                        </div>
+                        <input type="range" id="alphaSlider" min="1" max="80" value="35" step="1" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Isolates micro-displacements on chest wall.</span>
+                    </div>
+
+                    <!-- 2. Motion Artifact Suppressor Gate -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Artifact Gate (E_gate):</span>
+                            <span id="motionGateText" class="text-amber-400 font-bold">0.22</span>
+                        </div>
+                        <input type="range" id="motionGateSlider" min="0.01" max="1.00" value="0.22" step="0.01" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Slide right to tolerate more movement.</span>
+                    </div>
+
+                    <!-- 3. Artifact Suppression Mode Selector -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Gating Strategy:</span>
+                            <span id="gateModeLabel" class="text-emerald-400 font-bold">Soft AGC</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1 pt-0.5">
+                            <button id="btnGateSoft" class="px-2 py-1 text-[11px] font-mono rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all">Soft AGC</button>
+                            <button id="btnGateHard" class="px-2 py-1 text-[11px] font-mono rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition-all">Hard Freeze</button>
+                            <button id="btnGateBypass" class="px-2 py-1 text-[11px] font-mono rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition-all">Bypass</button>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Soft AGC dynamically scales down gain without flatlining.</span>
+                    </div>
+
+                    <!-- 4. Soft Limiter (Tanh Blooming Clamp) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Anti-Blooming Clamp (τ):</span>
+                            <span id="clampValText" class="text-cyan-400 font-bold">7.0</span>
+                        </div>
+                        <input type="range" id="clampSlider" min="1.0" max="25.0" value="7.0" step="0.5" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Lower values suppress white camera flashes and glare.</span>
+                    </div>
+
+                    <!-- 5. Temporal Noise Bandpass Filter (Smoothing) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Temporal Bandpass (γ):</span>
+                            <span id="bandpassSpeedText" class="text-cyan-400 font-bold">0.20</span>
+                        </div>
+                        <input type="range" id="bandpassSpeedSlider" min="0.05" max="0.50" value="0.20" step="0.01" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Filters out webcam sensor grain & 60Hz ambient flicker.</span>
+                    </div>
+
+                    <!-- 6. Coherence Threshold Gate -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Coherence Gate (C_th):</span>
+                            <span id="coherenceThText" class="text-emerald-400 font-bold">0.08</span>
+                        </div>
+                        <input type="range" id="coherenceThSlider" min="0.00" max="0.40" value="0.08" step="0.01" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Structure tensor threshold; 0 = amplify all texture.</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Column: Live Vitals, Oscilloscope, FFT Frequency Domain (5 cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+
+            <!-- Primary Clinical Telemetry Card -->
+            <div class="bg-slate-950 rounded-xl p-4 hud-border">
+                <div class="flex items-center justify-between border-b border-slate-800/80 pb-3 mb-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Vitals Telemetry</h2>
+                    </div>
+                    <div id="alarmBadge" class="hidden px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/50 text-rose-400 font-mono text-[11px] font-bold animate-bounce">
+                        SIGNAL PAUSED
+                    </div>
+                </div>
+
+                <!-- Digital Rate Readout -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-slate-900/90 rounded-lg p-3 border border-slate-800">
+                        <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-1">Respiratory Rate</span>
+                        <div class="flex items-baseline gap-2">
+                            <span id="rpmDisplay" class="text-3xl sm:text-4xl font-mono font-black text-emerald-400 glow-bio tracking-tight">--</span>
+                            <span class="text-xs font-mono text-slate-400">RPM</span>
+                        </div>
+                        <div class="mt-2 flex items-center justify-between text-[11px] font-mono">
+                            <span class="text-slate-400">Status:</span>
+                            <span id="rateClassification" class="text-slate-400 font-semibold">Calibrating...</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900/90 rounded-lg p-3 border border-slate-800 flex flex-col justify-between">
+                        <div>
+                            <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-1">Breathing Freq</span>
+                            <div class="flex items-baseline gap-1">
+                                <span id="freqDisplay" class="text-2xl font-mono font-bold text-cyan-400">--</span>
+                                <span class="text-xs font-mono text-slate-400">Hz</span>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-800/80 pt-1.5 flex items-center justify-between text-[11px] font-mono">
+                            <span class="text-slate-400">Edge C-Index:</span>
+                            <span id="coherenceMetric" class="text-cyan-300 font-semibold">0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status details bar -->
+                <div class="mt-3 bg-slate-900/60 rounded p-2 border border-slate-800/80 text-[11px] font-mono grid grid-cols-2 text-center">
+                    <div>
+                        <span class="text-slate-500 block text-[10px]">EST. SNR</span>
+                        <span id="snrDisplay" class="text-slate-300 font-semibold">-- dB</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 block text-[10px]">HARMONIC CONF</span>
+                        <span id="confDisplay" class="text-emerald-400 font-semibold">--%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Oscilloscope: Deconvolved 1D Respiratory Waveform -->
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded bg-cyan-400"></span>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Deconvolved Signal S(t)</h3>
+                    </div>
+                    <span class="text-[10px] font-mono text-slate-400">Detrended ROI Integral</span>
+                </div>
+
+                <div class="relative w-full h-36 bg-slate-900/90 rounded-lg overflow-hidden border border-slate-800">
+                    <canvas id="waveCanvas" class="w-full h-full block"></canvas>
+                    <div class="absolute bottom-1 right-2 text-[9px] font-mono text-slate-500">Anti-Aliased Live Buffer</div>
+                </div>
+            </div>
+
+            <!-- Goertzel Power Spectrum -->
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded bg-amber-400"></span>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Harmonic Spectrum</h3>
+                    </div>
+                    <span class="text-[10px] font-mono text-slate-400">Physiological Range: 6 - 42 RPM</span>
+                </div>
+
+                <div class="relative w-full h-28 bg-slate-900/90 rounded-lg overflow-hidden border border-slate-800">
+                    <canvas id="fftCanvas" class="w-full h-full block"></canvas>
+                    <div class="absolute top-1 right-2 text-[9px] font-mono text-amber-400/80">Dominant Peak</div>
+                </div>
+            </div>
+
+            <!-- Action Tools -->
+            <div class="flex items-center gap-2">
+                <button id="btnAudioTone" class="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-mono text-xs flex items-center justify-center gap-2 transition-all">
+                    <svg id="audioIcon" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    </svg>
+                    <span id="audioLabel">Mute Audio Chime</span>
+                </button>
+            </div>
+
+        </section>
+    </main>
+
+    <div id="toastNotification" class="fixed bottom-4 right-4 bg-slate-900 border border-slate-700 text-slate-200 px-4 py-2.5 rounded-lg shadow-2xl font-mono text-xs hidden transition-all duration-300 z-50 flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="toastMessage">Notification</span>
+    </div>
+
+    <script>
+    const STATE = {
+        audioEnabled: false,
+        lastBreathPeak: 0,
+        gateMode: 0 // 0=soft, 1=hard, 2=bypass
+    };
+
+    const PARAMS = {
+        motionGate: 0.22
+    }
+
+    const waveCanvas = document.getElementById('waveCanvas');
+    const waveCtx = waveCanvas.getContext('2d');
+    const fftCanvas = document.getElementById('fftCanvas');
+    const fftCtx = fftCanvas.getContext('2d');
+
+    let audioCtx = null;
+
+    function playVitalBreathChime() {
+        if (!STATE.audioEnabled) return;
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(520, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(780, audioCtx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.22);
+        } catch (e) { }
+    }
+
+    function drawOscilloscope(history, isGated) {
+        const w = waveCanvas.width = waveCanvas.offsetWidth * window.devicePixelRatio;
+        const h = waveCanvas.height = waveCanvas.offsetHeight * window.devicePixelRatio;
+
+        waveCtx.fillStyle = '#090d16';
+        waveCtx.fillRect(0, 0, w, h);
+
+        waveCtx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+        waveCtx.lineWidth = 1;
+        const numGridY = 4;
+        for (let i = 1; i < numGridY; i++) {
+            const y = (h / numGridY) * i;
+            waveCtx.beginPath();
+            waveCtx.moveTo(0, y);
+            waveCtx.lineTo(w, y);
+            waveCtx.stroke();
+        }
+
+        if (!history || history.length === 0) return;
+
+        let maxAmp = 0.04;
+        for (let i = 0; i < history.length; i++) {
+            const absVal = Math.abs(history[i]);
+            if (absVal > maxAmp) maxAmp = absVal;
+        }
+
+        waveCtx.strokeStyle = isGated ? '#f59e0b' : '#06b6d4';
+        waveCtx.lineWidth = 2.2 * window.devicePixelRatio;
+        waveCtx.lineJoin = 'round';
+        waveCtx.beginPath();
+
+        const len = history.length;
+        const centerY = h / 2;
+        const scaleY = (h * 0.42) / maxAmp;
+
+        for (let i = 0; i < len; i++) {
+            const x = (i / (len - 1)) * w;
+            const val = history[i];
+            const y = centerY - val * scaleY;
+
+            if (i === 0) waveCtx.moveTo(x, y);
+            else waveCtx.lineTo(x, y);
+        }
+        waveCtx.stroke();
+
+        const lastX = w - 4;
+        const lastVal = history[len - 1];
+        const lastY = centerY - lastVal * scaleY;
+
+        waveCtx.fillStyle = isGated ? '#f59e0b' : '#00f0a8';
+        waveCtx.beginPath();
+        waveCtx.arc(lastX, lastY, 4 * window.devicePixelRatio, 0, Math.PI * 2);
+        waveCtx.fill();
+        
+        // Audio peak trigger logic
+        if (!isGated && len > 2) {
+            const curSample = history[len - 1];
+            const prevSample = history[len - 2];
+            if (curSample > 0.015 && prevSample <= 0.015 && (performance.now() - STATE.lastBreathPeak) > 1300) {
+                STATE.lastBreathPeak = performance.now();
+                playVitalBreathChime();
+            }
+        }
+    }
+
+    function drawFftSpectrum(freqs, energies, rpm) {
+        const w = fftCanvas.width = fftCanvas.offsetWidth * window.devicePixelRatio;
+        const h = fftCanvas.height = fftCanvas.offsetHeight * window.devicePixelRatio;
+
+        fftCtx.fillStyle = '#090d16';
+        fftCtx.fillRect(0, 0, w, h);
+
+        if (!freqs || !energies || freqs.length === 0) return;
+
+        const numBars = energies.length;
+        const barWidth = w / numBars;
+        let maxP = Math.max(...energies, 0.0001);
+
+        for (let i = 0; i < numBars; i++) {
+            const barH = (energies[i] / maxP) * (h * 0.85);
+            const x = i * barWidth;
+            const y = h - barH;
+
+            const isPeak = Math.abs(freqs[i] - rpm) < 0.5;
+            fftCtx.fillStyle = isPeak ? '#f59e0b' : '#334155';
+            fftCtx.fillRect(x, y, Math.max(1, barWidth - 1), barH);
+        }
+
+        fftCtx.font = `${10 * window.devicePixelRatio}px JetBrains Mono, monospace`;
+        fftCtx.fillStyle = '#f59e0b';
+        fftCtx.fillText(`${rpm.toFixed(1)} RPM`, 8 * window.devicePixelRatio, 18 * window.devicePixelRatio);
+    }
+
+    const rpmDisplay = document.getElementById('rpmDisplay');
+    const freqDisplay = document.getElementById('freqDisplay');
+    const rateClassification = document.getElementById('rateClassification');
+    const coherenceMetric = document.getElementById('coherenceMetric');
+    const snrDisplay = document.getElementById('snrDisplay');
+    const confDisplay = document.getElementById('confDisplay');
+    const alarmBadge = document.getElementById('alarmBadge');
+    const fpsReadout = document.getElementById('fpsReadout');
+    const motionStatusBadge = document.getElementById('motionStatusBadge');
+    const motionEnergyVal = document.getElementById('motionEnergyVal');
+    const motionEnergyBar = document.getElementById('motionEnergyBar');
+    const gateTripRatio = document.getElementById('gateTripRatio');
+    const thresholdMarkerLine = document.getElementById('thresholdMarkerLine');
+
+    function updateUiTelemetry(data) {
+        // Update Motion Energy meter & Threshold position
+        const energyPct = Math.min(100, Math.max(1, (data.motion_energy / 1.0) * 100));
+        const threshPct = Math.min(100, Math.max(1, (PARAMS.motionGate / 1.0) * 100));
+        motionEnergyBar.style.width = `${energyPct}%`;
+        thresholdMarkerLine.style.left = `${threshPct}%`;
+
+        const ratio = (data.motion_energy / Math.max(0.001, PARAMS.motionGate)).toFixed(2);
+        gateTripRatio.textContent = `Ratio: ${ratio}x`;
+
+        if (data.gate_status) {
+            motionEnergyBar.className = 'h-full bg-amber-500 transition-all duration-75';
+            motionEnergyVal.textContent = `${data.motion_energy.toFixed(3)} (ARTIFACT GATED)`;
+            motionEnergyVal.className = 'text-amber-400 font-bold';
+            motionStatusBadge.textContent = 'MOTION REJECT';
+            motionStatusBadge.className = 'text-amber-400 font-medium';
+            alarmBadge.classList.remove('hidden');
+            alarmBadge.textContent = 'MOTION BLANK';
+        } else {
+            motionEnergyBar.className = 'h-full bg-emerald-500 transition-all duration-75';
+            motionEnergyVal.textContent = `${data.motion_energy.toFixed(3)} (STABLE)`;
+            motionEnergyVal.className = 'text-emerald-400 font-bold';
+            motionStatusBadge.textContent = 'STABLE';
+            motionStatusBadge.className = 'text-emerald-400 font-medium';
+            alarmBadge.classList.add('hidden');
+        }
+
+        if (data.confidence >= 25 && !data.gate_status) {
+            rpmDisplay.textContent = data.rpm.toFixed(1);
+            freqDisplay.textContent = (data.rpm / 60.0).toFixed(2);
+
+            if (data.rpm < 12.0) {
+                rateClassification.textContent = 'Bradypnea (<12)';
+                rateClassification.className = 'text-amber-400 font-semibold';
+            } else if (data.rpm > 20.0) {
+                rateClassification.textContent = 'Tachypnea (>20)';
+                rateClassification.className = 'text-rose-400 font-semibold';
+            } else {
+                rateClassification.textContent = 'Normal (Eupnea)';
+                rateClassification.className = 'text-emerald-400 font-semibold';
+            }
+        }
+
+        coherenceMetric.textContent = data.coherence.toFixed(2);
+        snrDisplay.textContent = `${data.snr.toFixed(1)} dB`;
+        confDisplay.textContent = `${data.confidence}%`;
+        fpsReadout.textContent = Math.round(data.fps).toString().padStart(2, '0');
+    }
+    
+    // Telemetry Polling Loop
+    setInterval(async () => {
+        try {
+            const res = await fetch('/telemetry');
+            const data = await res.json();
+            updateUiTelemetry(data);
+            drawOscilloscope(data.waveform, data.gate_status);
+            drawFftSpectrum(data.freqs, data.energies, data.rpm);
+        } catch (e) {
+            console.error("Telemetry error:", e);
+        }
+    }, 100);
+
+    // API Update Function for parameters
+    function updateParam(payload) {
+        fetch('/update_param', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+    }
+
+    // UI Event Listeners
+    const alphaSlider = document.getElementById('alphaSlider');
+    const alphaValText = document.getElementById('alphaValText');
+    alphaSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        alphaValText.textContent = `${val}x`;
+        updateParam({alpha: val});
+    });
+
+    const motionGateSlider = document.getElementById('motionGateSlider');
+    const motionGateText = document.getElementById('motionGateText');
+    const motionGateMarker = document.getElementById('motionGateMarker');
+    motionGateSlider.addEventListener('input', (e) => {
+        PARAMS.motionGate = parseFloat(e.target.value);
+        motionGateText.textContent = PARAMS.motionGate.toFixed(2);
+        motionGateMarker.textContent = `Threshold: ${PARAMS.motionGate.toFixed(2)}`;
+        updateParam({motion_gate: PARAMS.motionGate});
+    });
+
+    const btnGateSoft = document.getElementById('btnGateSoft');
+    const btnGateHard = document.getElementById('btnGateHard');
+    const btnGateBypass = document.getElementById('btnGateBypass');
+    const gateModeLabel = document.getElementById('gateModeLabel');
+
+    function setGateMode(modeId) {
+        STATE.gateMode = modeId;
+        const activeClass = 'px-2 py-1 text-[11px] font-mono rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        const inactiveClass = 'px-2 py-1 text-[11px] font-mono rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200';
+
+        btnGateSoft.className = modeId === 0 ? activeClass : inactiveClass;
+        btnGateHard.className = modeId === 1 ? activeClass : inactiveClass;
+        btnGateBypass.className = modeId === 2 ? activeClass : inactiveClass;
+
+        gateModeLabel.textContent = modeId === 0 ? 'Soft AGC' : (modeId === 1 ? 'Hard Freeze' : 'Bypass Gate');
+        updateParam({gate_mode: modeId});
+        showToast(`Artifact gate mode: ${gateModeLabel.textContent}`);
+    }
+
+    btnGateSoft.addEventListener('click', () => setGateMode(0));
+    btnGateHard.addEventListener('click', () => setGateMode(1));
+    btnGateBypass.addEventListener('click', () => setGateMode(2));
+
+    const clampSlider = document.getElementById('clampSlider');
+    const clampValText = document.getElementById('clampValText');
+    clampSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        clampValText.textContent = val.toFixed(1);
+        updateParam({soft_clamp: val});
+    });
+
+    const bandpassSpeedSlider = document.getElementById('bandpassSpeedSlider');
+    const bandpassSpeedText = document.getElementById('bandpassSpeedText');
+    bandpassSpeedSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        bandpassSpeedText.textContent = val.toFixed(2);
+        updateParam({bandpass_gamma: val});
+    });
+
+    const coherenceThSlider = document.getElementById('coherenceThSlider');
+    const coherenceThText = document.getElementById('coherenceThText');
+    coherenceThSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        coherenceThText.textContent = val.toFixed(2);
+        updateParam({coherence_th: val});
+    });
+
+    document.getElementById('btnResetParams').addEventListener('click', () => {
+        alphaSlider.value = 35;
+        alphaValText.textContent = '35x';
+        motionGateSlider.value = 0.22;
+        PARAMS.motionGate = 0.22;
+        motionGateText.textContent = '0.22';
+        motionGateMarker.textContent = 'Threshold: 0.22';
+        clampSlider.value = 7.0;
+        clampValText.textContent = '7.0';
+        bandpassSpeedSlider.value = 0.20;
+        bandpassSpeedText.textContent = '0.20';
+        coherenceThSlider.value = 0.08;
+        coherenceThText.textContent = '0.08';
+        setGateMode(0);
+
+        updateParam({
+            alpha: 35,
+            motion_gate: 0.22,
+            gate_mode: 0,
+            soft_clamp: 7.0,
+            bandpass_gamma: 0.20,
+            coherence_th: 0.08
+        });
+
+        showToast('Algorithm parameters reset to defaults.');
+    });
+
+    const btnAudioTone = document.getElementById('btnAudioTone');
+    const audioLabel = document.getElementById('audioLabel');
+    const audioIcon = document.getElementById('audioIcon');
+
+    btnAudioTone.addEventListener('click', () => {
+        STATE.audioEnabled = !STATE.audioEnabled;
+        if (STATE.audioEnabled) {
+            audioLabel.textContent = 'Audio Chime Active';
+            btnAudioTone.className = 'flex-1 py-2 px-3 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs flex items-center justify-center gap-2';
+            audioIcon.classList.add('text-emerald-400');
+            showToast('Audio chime enabled on inhalation peak.');
+        } else {
+            audioLabel.textContent = 'Mute Audio Chime';
+            btnAudioTone.className = 'flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-mono text-xs flex items-center justify-center gap-2';
+            audioIcon.classList.remove('text-emerald-400');
+            showToast('Audio chime muted.');
+        }
+    });
+
+    function showToast(msg) {
+        const toast = document.getElementById('toastNotification');
+        const text = document.getElementById('toastMessage');
+        text.textContent = msg;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3200);
+    }
+    </script>
+</body>
+</html>

@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contactless Eulerian Respiratory Deconvolution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        bio: {
+                            50: '#ecfdf5',
+                            500: '#10b981',
+                            600: '#059669',
+                            DEFAULT: '#00f0a8'
+                        },
+                        vitals: {
+                            cyan: '#06b6d4',
+                            amber: '#f59e0b',
+                            rose: '#f43f5e'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #070a12;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+        .scanline {
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.22) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+            background-size: 100% 3px, 4px 100%;
+            pointer-events: none;
+        }
+        .hud-border {
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.04);
+        }
+        .hud-border-warning {
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.1);
+        }
+        .glow-bio {
+            text-shadow: 0 0 12px rgba(0, 240, 168, 0.45);
+        }
+        .glow-alert {
+            text-shadow: 0 0 14px rgba(244, 63, 94, 0.75);
+            animation: pulse-alert 1.2s infinite;
+        }
+        @keyframes pulse-alert {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.65; transform: scale(0.99); }
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            background: #1e293b;
+            height: 6px;
+            border-radius: 3px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #00f0a8;
+            cursor: pointer;
+            box-shadow: 0 0 8px #00f0a8;
+            transition: transform 0.1s ease;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+    </style>
+</head>
+<body class="min-h-screen font-sans flex flex-col antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
+
+    <header class="border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 py-3 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="h-9 w-9 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-400 p-[1px] flex items-center justify-center shadow-lg shadow-emerald-950">
+                    <div class="h-full w-full bg-slate-950 rounded-[7px] flex items-center justify-center">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                            Eulerian Respiratory Deconvolution
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">LIVE WEBCAM</span>
+                        </h1>
+                    </div>
+                    <p class="text-xs text-slate-400 hidden sm:block">Anti-Blooming & Artifact-Gated Eulerian Motion Amplification</p>
+                </div>
+            </div>
+
+            <!-- Diagnostics & System Vitals Bar -->
+            <div class="flex items-center gap-3 text-xs font-mono">
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span id="fpsDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span class="text-slate-400">FPS:</span>
+                    <span id="fpsReadout" class="text-emerald-400 font-bold">00</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span class="text-slate-400">LATENCY:</span>
+                    <span id="procTimeReadout" class="text-cyan-400 font-medium">0.0ms</span>
+                </div>
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+                    <span class="text-slate-400">STATUS:</span>
+                    <span id="motionStatusBadge" class="text-emerald-400 font-medium">STABLE</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        <!-- Left Column: Live Camera, Viewport, ROI and Parameter Tuning Controls -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+            
+            <!-- Video & Eulerian Viewer Container -->
+            <div class="relative bg-slate-950 rounded-xl p-3 hud-border overflow-hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>
+                        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Live Video Stream & Deconvolution ROI</h2>
+                    </div>
+
+                    <!-- Display Mode Tabs -->
+                    <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-[11px] font-mono">
+                        <button id="btnModeMagnified" class="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all">Magnified</button>
+                        <button id="btnModeCoherence" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200 transition-all">Coherence (C)</button>
+                        <button id="btnModeBandpass" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200 transition-all">Motion Band</button>
+                        <button id="btnModeRaw" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200 transition-all">Raw Camera</button>
+                    </div>
+                </div>
+
+                <div id="canvasContainer" class="relative w-full aspect-[4/3] bg-black rounded-lg overflow-hidden flex items-center justify-center select-none shadow-inner">
+                    <canvas id="viewCanvas" class="w-full h-full object-contain cursor-crosshair"></canvas>
+                    <div class="scanline absolute inset-0 pointer-events-none opacity-30"></div>
+
+                    <!-- Dynamic ROI Reticle Overlay -->
+                    <div id="roiBox" class="absolute border-2 border-emerald-400 bg-emerald-500/10 rounded cursor-move transition-shadow hover:shadow-[0_0_15px_rgba(0,240,168,0.5)] flex items-start justify-start p-1 pointer-events-auto">
+                        <span class="text-[9px] font-mono bg-slate-950/90 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30 select-none shadow">CHEST-ROI</span>
+                        <div id="roiResizeHandle" class="absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-emerald-400 border border-slate-950 rounded-sm cursor-se-resize shadow"></div>
+                    </div>
+
+                    <!-- Real-Time Artifact Warning Banner on Canvas -->
+                    <div id="artifactWarningBanner" class="hidden absolute top-3 left-3 bg-amber-500/90 backdrop-blur-md text-slate-950 px-2.5 py-1 rounded font-mono text-[11px] font-bold shadow-lg flex items-center gap-1.5 transition-all">
+                        <svg class="w-3.5 h-3.5 text-slate-950 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>MOTION ARTIFACT GATED</span>
+                    </div>
+
+                    <!-- Overlay Mode Badge -->
+                    <div class="absolute bottom-2 left-2 bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded border border-slate-800 font-mono text-[11px] flex items-center gap-2">
+                        <span id="activeModeLabel" class="text-emerald-400 font-bold">ANTI-BLOOM EVM (α=30x)</span>
+                        <span class="text-slate-500">|</span>
+                        <span id="cameraInfoText" class="text-slate-300">Webcam Active</span>
+                    </div>
+
+                    <!-- Reposition Hint & Quick Recenter Button -->
+                    <div class="absolute top-2 right-2 flex items-center gap-1.5">
+                        <button id="btnCenterRoi" class="bg-slate-950/85 hover:bg-slate-900 text-slate-300 hover:text-emerald-400 px-2 py-1 rounded border border-slate-800 text-[10px] font-mono transition-all">
+                            Center ROI
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden Processing Elements -->
+                <video id="webcamVideo" class="hidden" playsinline muted></video>
+                <canvas id="procCanvas" width="320" height="240" class="hidden"></canvas>
+            </div>
+
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border flex flex-col gap-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Webcam Source & Motion Gate Control
+                    </span>
+
+                    <div class="flex items-center gap-2">
+                        <select id="cameraSelect" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs font-mono rounded-md px-2.5 py-1 focus:outline-none focus:border-emerald-500">
+                            <option value="">Detecting cameras...</option>
+                        </select>
+                        <button id="btnRestartCam" class="px-2.5 py-1 rounded-md text-xs font-mono bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all">
+                            Restart
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Motion Energy & Artifact Gate Meter -->
+                <div class="bg-slate-900/80 rounded-lg p-2.5 border border-slate-800 space-y-1.5">
+                    <div class="flex items-center justify-between text-xs font-mono">
+                        <span class="text-slate-400">Current Motion Energy:</span>
+                        <div class="flex items-center gap-2">
+                            <span id="motionEnergyVal" class="text-cyan-400 font-bold">0.02 (Calm)</span>
+                            <span id="gateTripRatio" class="text-[10px] text-slate-500">Ratio: 0.1x</span>
+                        </div>
+                    </div>
+                    <div class="relative w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                        <div id="motionEnergyBar" class="h-full bg-emerald-500 transition-all duration-75" style="width: 10%;"></div>
+                        <!-- Visual Marker for Artifact Threshold -->
+                        <div id="thresholdMarkerLine" class="absolute top-0 bottom-0 w-1 bg-amber-400 shadow-[0_0_8px_#f59e0b] pointer-events-none" style="left: 20%;"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                        <span>0.00 (Resting)</span>
+                        <span id="motionGateMarker" class="text-amber-400 font-semibold">Threshold: 0.16</span>
+                        <span>1.00+ (Extreme Motion)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unified Algorithm Tuning & Anti-Artifact Controls -->
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-1.5">
+                        <svg class="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                        </svg>
+                        Algorithm Tuning & Anti-Artifact Controls
+                    </span>
+                    <button id="btnResetParams" class="text-[11px] font-mono text-slate-400 hover:text-emerald-400 underline">Reset Defaults</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3.5">
+                    <!-- 1. Magnification Gain (Alpha) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Magnification Gain (α):</span>
+                            <span id="alphaValText" class="text-emerald-400 font-bold">30x</span>
+                        </div>
+                        <input type="range" id="alphaSlider" min="1" max="80" value="30" step="1" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Isolates micro-displacements on chest wall.</span>
+                    </div>
+
+                    <!-- 2. Motion Artifact Suppressor Gate -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Artifact Gate (E_gate):</span>
+                            <span id="motionGateText" class="text-amber-400 font-bold">0.16</span>
+                        </div>
+                        <input type="range" id="motionGateSlider" min="0.01" max="1.20" value="0.16" step="0.01" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Slide right to tolerate more movement; left for strict gating.</span>
+                    </div>
+
+                    <!-- 3. Artifact Suppression Mode Selector -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Gating Strategy:</span>
+                            <span id="gateModeLabel" class="text-emerald-400 font-bold">Soft AGC</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1 pt-0.5">
+                            <button id="btnGateSoft" class="px-2 py-1 text-[11px] font-mono rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all">Soft AGC</button>
+                            <button id="btnGateHard" class="px-2 py-1 text-[11px] font-mono rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition-all">Hard Freeze</button>
+                            <button id="btnGateBypass" class="px-2 py-1 text-[11px] font-mono rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition-all">Bypass</button>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Soft AGC dynamically scales down gain without flatlining.</span>
+                    </div>
+
+                    <!-- 4. Soft Limiter (Tanh Blooming Clamp) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Anti-Blooming Clamp (τ):</span>
+                            <span id="clampValText" class="text-cyan-400 font-bold">8.0</span>
+                        </div>
+                        <input type="range" id="clampSlider" min="1.0" max="30.0" value="8.0" step="0.5" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Lower values suppress white camera flashes and glare.</span>
+                    </div>
+
+                    <!-- 5. Temporal Noise Bandpass Filter (Smoothing) -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Temporal Bandpass (γ):</span>
+                            <span id="bandpassSpeedText" class="text-cyan-400 font-bold">0.18</span>
+                        </div>
+                        <input type="range" id="bandpassSpeedSlider" min="0.02" max="0.50" value="0.18" step="0.01" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Filters out webcam sensor grain & 60Hz ambient flicker.</span>
+                    </div>
+
+                    <!-- 6. Coherence Threshold Gate -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Coherence Gate (C_th):</span>
+                            <span id="coherenceThText" class="text-emerald-400 font-bold">0.10</span>
+                        </div>
+                        <input type="range" id="coherenceThSlider" min="0.00" max="0.50" value="0.10" step="0.01" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Structure tensor threshold; 0 = amplify all texture.</span>
+                    </div>
+
+                    <!-- 7. Spatial Gradient Sensitivity (Contrast Boost) -->
+                    <div class="space-y-1 md:col-span-2">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="text-slate-300">Edge Contrast Sensitivity:</span>
+                            <span id="gradientScaleText" class="text-amber-400 font-bold">1.2x</span>
+                        </div>
+                        <input type="range" id="gradientScaleSlider" min="0.5" max="3.0" value="1.2" step="0.1" class="w-full cursor-pointer">
+                        <span class="text-[10px] text-slate-500 block">Enhances gradients in low-contrast indoor lighting conditions.</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Column: Live Vitals, Oscilloscope, FFT Frequency Domain (5 cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-4">
+
+            <!-- Primary Clinical Telemetry Card -->
+            <div class="bg-slate-950 rounded-xl p-4 hud-border">
+                <div class="flex items-center justify-between border-b border-slate-800/80 pb-3 mb-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Vitals Telemetry</h2>
+                    </div>
+                    <div id="alarmBadge" class="hidden px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/50 text-rose-400 font-mono text-[11px] font-bold animate-bounce">
+                        SIGNAL PAUSED
+                    </div>
+                </div>
+
+                <!-- Digital Rate Readout -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-slate-900/90 rounded-lg p-3 border border-slate-800">
+                        <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-1">Respiratory Rate</span>
+                        <div class="flex items-baseline gap-2">
+                            <span id="rpmDisplay" class="text-3xl sm:text-4xl font-mono font-black text-emerald-400 glow-bio tracking-tight">--</span>
+                            <span class="text-xs font-mono text-slate-400">RPM</span>
+                        </div>
+                        <div class="mt-2 flex items-center justify-between text-[11px] font-mono">
+                            <span class="text-slate-400">Status:</span>
+                            <span id="rateClassification" class="text-slate-400 font-semibold">Calibrating...</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900/90 rounded-lg p-3 border border-slate-800 flex flex-col justify-between">
+                        <div>
+                            <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-1">Breathing Freq</span>
+                            <div class="flex items-baseline gap-1">
+                                <span id="freqDisplay" class="text-2xl font-mono font-bold text-cyan-400">--</span>
+                                <span class="text-xs font-mono text-slate-400">Hz</span>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-800/80 pt-1.5 flex items-center justify-between text-[11px] font-mono">
+                            <span class="text-slate-400">Edge C-Index:</span>
+                            <span id="coherenceMetric" class="text-cyan-300 font-semibold">0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status details bar -->
+                <div class="mt-3 bg-slate-900/60 rounded p-2 border border-slate-800/80 text-[11px] font-mono grid grid-cols-3 text-center">
+                    <div>
+                        <span class="text-slate-500 block text-[10px]">EST. SNR</span>
+                        <span id="snrDisplay" class="text-slate-300 font-semibold">-- dB</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 block text-[10px]">HARMONIC CONF</span>
+                        <span id="confDisplay" class="text-emerald-400 font-semibold">--%</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-500 block text-[10px]">ARTIFACT BLANK</span>
+                        <span id="artifactRejectionCount" class="text-slate-300 font-semibold">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Oscilloscope: Deconvolved 1D Respiratory Waveform -->
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded bg-cyan-400"></span>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Deconvolved Signal S(t)</h3>
+                    </div>
+                    <span class="text-[10px] font-mono text-slate-400">Detrended ROI Integral</span>
+                </div>
+
+                <div class="relative w-full h-36 bg-slate-900/90 rounded-lg overflow-hidden border border-slate-800">
+                    <canvas id="waveCanvas" class="w-full h-full block"></canvas>
+                    <div class="absolute bottom-1 right-2 text-[9px] font-mono text-slate-500">Anti-Aliased Live Buffer</div>
+                </div>
+            </div>
+
+            <!-- FFT Power Spectrum (Frequency Domain Deconvolution) -->
+            <div class="bg-slate-950 rounded-xl p-3.5 hud-border flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded bg-amber-400"></span>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">Harmonic Spectrum (DFT)</h3>
+                    </div>
+                    <span class="text-[10px] font-mono text-slate-400">Physiological Range: 6 - 42 RPM</span>
+                </div>
+
+                <div class="relative w-full h-28 bg-slate-900/90 rounded-lg overflow-hidden border border-slate-800">
+                    <canvas id="fftCanvas" class="w-full h-full block"></canvas>
+                    <div class="absolute top-1 right-2 text-[9px] font-mono text-amber-400/80">Dominant Peak</div>
+                </div>
+            </div>
+
+            <!-- Action & Export Tools -->
+            <div class="flex items-center gap-2">
+                <button id="btnAudioTone" class="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-mono text-xs flex items-center justify-center gap-2 transition-all">
+                    <svg id="audioIcon" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    </svg>
+                    <span id="audioLabel">Mute Audio Chime</span>
+                </button>
+
+                <button id="btnExportCsv" class="flex-1 py-2 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-mono text-xs flex items-center justify-center gap-2 transition-all">
+                    <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span>Export Waveform CSV</span>
+                </button>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- Medical Toast Notification -->
+    <div id="toastNotification" class="fixed bottom-4 right-4 bg-slate-900 border border-slate-700 text-slate-200 px-4 py-2.5 rounded-lg shadow-2xl font-mono text-xs hidden transition-all duration-300 z-50 flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="toastMessage">Notification</span>
+    </div>
+
+    <script>
+    /**
+     * Contactless Eulerian Respiratory Deconvolution Engine
+     * With Anti-Blooming and Gross Motion Artifact Suppression
+     *
+     * Pipeline:
+     * 1. Acquire frame from live webcam (320x240 working resolution)
+     * 2. Spatial gradient calculation (Ix, Iy) using 3x3 Sobel operator
+     * 3. Rotation-invariant Structure Tensor integration:
+     *    C = ((Jxx - Jyy)^2 + 4Jxy^2) / ((Jxx + Jyy)^2 + eps)
+     * 4. Dual-IIR Temporal Bandpass filter per pixel (eliminates sensor noise & 60Hz flicker)
+     * 5. Gross Motion Gate & Soft Saturation (Tanh) limiter to prevent blooming
+     * 6. Real-time ROI chest deconvolution & Online DFT Peak Analysis
+     */
+
+    const CONFIG = {
+        width: 320,
+        height: 240,
+        targetFps: 30,
+        historyLen: 300, // 10 seconds at 30 FPS
+        dftSize: 256,
+        eps: 0.0001
+    };
+
+    const PARAMS = {
+        alpha: 30.0,
+        motionGate: 0.16,
+        gateMode: 'soft', // 'soft' | 'hard' | 'bypass'
+        softClamp: 8.0,
+        bandpassGamma: 0.18,
+        coherenceThreshold: 0.10,
+        gradientScale: 1.2
+    };
+
+    const STATE = {
+        displayMode: 'magnified', // 'magnified' | 'coherence' | 'bandpass' | 'raw'
+        audioEnabled: false,
+        fps: 0,
+        procTime: 0,
+        currentBpm: 0,
+        dominantFreq: 0,
+        coherenceAvg: 0.0,
+        motionEnergy: 0.0,
+        isMotionGated: false,
+        artifactBlankCount: 0,
+        lastBreathPeak: 0,
+        cameraReady: false,
+        activeCameraId: null
+    };
+
+    const ROI = {
+        x: 0.28,
+        y: 0.22,
+        w: 0.44,
+        h: 0.50,
+        isDragging: false,
+        isResizing: false,
+        dragStartX: 0,
+        dragStartY: 0
+    };
+
+    // Signal and History Buffers
+    const signalHistory = new Float32Array(CONFIG.historyLen);
+    const detrendedHistory = new Float32Array(CONFIG.historyLen);
+    const timestamps = new Float32Array(CONFIG.historyLen);
+    let historyIndex = 0;
+    let frameCounter = 0;
+
+    // DOM & Canvas Elements
+    const viewCanvas = document.getElementById('viewCanvas');
+    const viewCtx = viewCanvas.getContext('2d', { willReadFrequently: true });
+    const procCanvas = document.getElementById('procCanvas');
+    const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+    const waveCanvas = document.getElementById('waveCanvas');
+    const waveCtx = waveCanvas.getContext('2d');
+    const fftCanvas = document.getElementById('fftCanvas');
+    const fftCtx = fftCanvas.getContext('2d');
+    const webcamVideo = document.getElementById('webcamVideo');
+    const roiBox = document.getElementById('roiBox');
+    const roiResizeHandle = document.getElementById('roiResizeHandle');
+    const canvasContainer = document.getElementById('canvasContainer');
+
+    // Typed Image Processing Buffers
+    const totalPixels = CONFIG.width * CONFIG.height;
+    const grayCurrent = new Float32Array(totalPixels);
+    const iirSlow = new Float32Array(totalPixels);
+    const iirFast = new Float32Array(totalPixels);
+    const bandpassMotion = new Float32Array(totalPixels);
+    const gradX = new Float32Array(totalPixels);
+    const gradY = new Float32Array(totalPixels);
+    const Jxx = new Float32Array(totalPixels);
+    const Jyy = new Float32Array(totalPixels);
+    const Jxy = new Float32Array(totalPixels);
+    const coherenceMap = new Float32Array(totalPixels);
+
+    let isFirstFrame = true;
+    let outputImageData = null;
+    let audioCtx = null;
+
+    function playVitalBreathChime() {
+        if (!STATE.audioEnabled) return;
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(520, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(780, audioCtx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.22);
+        } catch (e) { }
+    }
+
+    /**
+     * Core Algorithm: Rotation-Invariant Edge Coherence & Anti-Blooming Magnifier
+     * - Structure Tensor yields orientation-independent coherence C
+     * - Dual-IIR temporal filter isolates physiological respiration band
+     * - Tanh soft-limiting and Gross Motion Gating eliminate movement bursts
+     */
+    function processEulerianFrame(sourceImageData) {
+        const src = sourceImageData.data;
+        const w = CONFIG.width;
+        const h = CONFIG.height;
+
+        if (!outputImageData) {
+            outputImageData = procCtx.createImageData(w, h);
+        }
+        const out = outputImageData.data;
+
+        // 1. Convert to grayscale luminance
+        for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+            grayCurrent[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+        }
+
+        // Initialize IIR filters on first frame to avoid startup flash
+        if (isFirstFrame) {
+            iirSlow.set(grayCurrent);
+            iirFast.set(grayCurrent);
+            isFirstFrame = false;
+            return { roiSignal: 0, avgCoherence: 0, motionEnergy: 0 };
+        }
+
+        const gammaFast = PARAMS.bandpassGamma;
+        const gammaSlow = PARAMS.bandpassGamma * 0.15;
+        const gScale = PARAMS.gradientScale * 0.125;
+
+        // 2. Spatial Gradients (Ix, Iy) and Dual-IIR Temporal Filtering
+        for (let y = 1; y < h - 1; y++) {
+            const row = y * w;
+            const prevRow = (y - 1) * w;
+            const nextRow = (y + 1) * w;
+
+            for (let x = 1; x < w - 1; x++) {
+                const idx = row + x;
+
+                // Dual-IIR filter for temporal respiratory bandpass
+                const gray = grayCurrent[idx];
+                iirSlow[idx] += gammaSlow * (gray - iirSlow[idx]);
+                iirFast[idx] += gammaFast * (gray - iirFast[idx]);
+                const bp = iirFast[idx] - iirSlow[idx];
+                bandpassMotion[idx] = bp;
+
+                // Sobel Spatial Gradients
+                const ix = (
+                    -grayCurrent[prevRow + x - 1] + grayCurrent[prevRow + x + 1]
+                    -2 * grayCurrent[row + x - 1] + 2 * grayCurrent[row + x + 1]
+                    -grayCurrent[nextRow + x - 1] + grayCurrent[nextRow + x + 1]
+                ) * gScale;
+
+                const iy = (
+                    -grayCurrent[prevRow + x - 1] - 2 * grayCurrent[prevRow + x] - grayCurrent[prevRow + x + 1]
+                    +grayCurrent[nextRow + x - 1] + 2 * grayCurrent[nextRow + x] + grayCurrent[nextRow + x + 1]
+                ) * gScale;
+
+                gradX[idx] = ix;
+                gradY[idx] = iy;
+
+                Jxx[idx] = ix * ix;
+                Jyy[idx] = iy * iy;
+                Jxy[idx] = ix * iy;
+            }
+        }
+
+        // 3. Structure Tensor Neighborhood Box Integration & Coherence
+        let totalRoiCoherence = 0;
+        let roiPixelCount = 0;
+        let roiSignalAccumulator = 0;
+        let roiMotionEnergyAccumulator = 0;
+
+        const roiPixelX1 = Math.floor(ROI.x * w);
+        const roiPixelY1 = Math.floor(ROI.y * h);
+        const roiPixelX2 = Math.floor((ROI.x + ROI.w) * w);
+        const roiPixelY2 = Math.floor((ROI.y + ROI.h) * h);
+
+        const eps = CONFIG.eps;
+        const cThreshold = PARAMS.coherenceThreshold;
+
+        // First pass: compute coherence and measure ROI motion energy
+        for (let y = 2; y < h - 2; y++) {
+            const row = y * w;
+            const inY = (y >= roiPixelY1 && y <= roiPixelY2);
+
+            for (let x = 2; x < w - 2; x++) {
+                const idx = row + x;
+
+                // 3x3 local box integration of the structure tensor
+                let sJxx = 0, sJyy = 0, sJxy = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    const sRow = (y + dy) * w;
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const sIdx = sRow + (x + dx);
+                        sJxx += Jxx[sIdx];
+                        sJyy += Jyy[sIdx];
+                        sJxy += Jxy[sIdx];
+                    }
+                }
+
+                sJxx /= 9;
+                sJyy /= 9;
+                sJxy /= 9;
+
+                // Rotation-Invariant Coherence Formula:
+                // C = ((Jxx - Jyy)^2 + 4Jxy^2) / ((Jxx + Jyy)^2 + eps)
+                const diff = sJxx - sJyy;
+                const trace = sJxx + sJyy;
+                const num = (diff * diff) + (4 * sJxy * sJxy);
+                const den = (trace * trace) + eps;
+
+                let c = num / den;
+                if (c > 1.0) c = 1.0;
+                coherenceMap[idx] = c;
+
+                if (inY && x >= roiPixelX1 && x <= roiPixelX2) {
+                    roiPixelCount++;
+                    totalRoiCoherence += c;
+                    roiMotionEnergyAccumulator += Math.abs(bandpassMotion[idx]);
+                }
+            }
+        }
+
+        const avgMotionEnergy = roiPixelCount > 0 ? (roiMotionEnergyAccumulator / roiPixelCount) : 0;
+        STATE.motionEnergy = avgMotionEnergy;
+
+        // Motion Artifact Gating Decision
+        const isGrossMotion = (PARAMS.gateMode !== 'bypass') && (avgMotionEnergy > PARAMS.motionGate);
+        STATE.isMotionGated = isGrossMotion;
+
+        // Dynamic gain attenuation based on selected gating strategy
+        let effectiveAlpha = PARAMS.alpha;
+        if (isGrossMotion) {
+            STATE.artifactBlankCount++;
+            if (PARAMS.gateMode === 'hard') {
+                effectiveAlpha = 0.0;
+            } else if (PARAMS.gateMode === 'soft') {
+                // Adaptive Gain Control: smoothly taper gain as motion increases beyond threshold
+                const excess = avgMotionEnergy / PARAMS.motionGate;
+                effectiveAlpha = PARAMS.alpha / (1.0 + (excess * excess));
+            }
+        }
+
+        const tau = PARAMS.softClamp;
+        const displayMode = STATE.displayMode;
+
+        // 4. Eulerian Amplification & Display Rendering Pass
+        for (let y = 2; y < h - 2; y++) {
+            const row = y * w;
+            const inY = (y >= roiPixelY1 && y <= roiPixelY2);
+
+            for (let x = 2; x < w - 2; x++) {
+                const idx = row + x;
+                const p4 = idx * 4;
+
+                const c = coherenceMap[idx];
+                const activeC = c >= cThreshold ? c : 0;
+                const m = bandpassMotion[idx];
+
+                // Anti-Blooming Soft Limiter:
+                // Uses hyperbolic tangent (tanh) to smoothly clamp large motion deltas
+                const clampedMotion = tau * Math.tanh(m / tau);
+                const magnifiedDelta = effectiveAlpha * activeC * clampedMotion;
+
+                if (inY && x >= roiPixelX1 && x <= roiPixelX2) {
+                    // Accumulate for 1D deconvolved breathing scalar
+                    roiSignalAccumulator += activeC * clampedMotion;
+                }
+
+                if (displayMode === 'magnified') {
+                    let r = src[p4] + magnifiedDelta;
+                    let g = src[p4 + 1] + magnifiedDelta * 0.92;
+                    let b = src[p4 + 2] + magnifiedDelta * 1.15;
+
+                    out[p4] = r < 0 ? 0 : (r > 255 ? 255 : r);
+                    out[p4 + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+                    out[p4 + 2] = b < 0 ? 0 : (b > 255 ? 255 : b);
+                    out[p4 + 3] = 255;
+
+                } else if (displayMode === 'coherence') {
+                    // Cyan-emerald edge coherence inspection
+                    const val = Math.floor(c * 255);
+                    out[p4] = Math.floor(val * 0.1);
+                    out[p4 + 1] = val;
+                    out[p4 + 2] = Math.floor(val * 0.85);
+                    out[p4 + 3] = 255;
+
+                } else if (displayMode === 'bandpass') {
+                    // Bandpass motion field
+                    const diffVis = Math.min(255, Math.max(0, 128 + clampedMotion * 18));
+                    out[p4] = diffVis;
+                    out[p4 + 1] = diffVis;
+                    out[p4 + 2] = diffVis;
+                    out[p4 + 3] = 255;
+
+                } else {
+                    // Raw camera feed
+                    out[p4] = src[p4];
+                    out[p4 + 1] = src[p4 + 1];
+                    out[p4 + 2] = src[p4 + 2];
+                    out[p4 + 3] = 255;
+                }
+            }
+        }
+
+        procCtx.putImageData(outputImageData, 0, 0);
+
+        const avgCoh = roiPixelCount > 0 ? (totalRoiCoherence / roiPixelCount) : 0;
+        const deconvolvedScalar = roiPixelCount > 0 ? (roiSignalAccumulator / roiPixelCount) : 0;
+
+        return {
+            roiSignal: deconvolvedScalar,
+            avgCoherence: avgCoh,
+            motionEnergy: avgMotionEnergy
+        };
+    }
+
+    let signalBaseline = 0;
+    let filteredSignal = 0;
+
+    function pushSignalSample(rawSample, isGated) {
+        if (isGated && PARAMS.gateMode === 'hard') {
+            // Smoothly decay towards 0 instead of abrupt step jump to prevent FFT spectral ring
+            filteredSignal *= 0.92;
+            signalHistory[historyIndex] = signalBaseline;
+            detrendedHistory[historyIndex] = filteredSignal;
+        } else {
+            // Adaptive detrending high-pass filter
+            signalBaseline += (rawSample - signalBaseline) * 0.04;
+            const detrended = rawSample - signalBaseline;
+
+            // Low-pass physiological smoothing
+            filteredSignal += (detrended - filteredSignal) * 0.38;
+
+            signalHistory[historyIndex] = rawSample;
+            detrendedHistory[historyIndex] = filteredSignal;
+        }
+
+        timestamps[historyIndex] = performance.now();
+        historyIndex = (historyIndex + 1) % CONFIG.historyLen;
+    }
+
+    function computeRespiratoryFft() {
+        const N = CONFIG.dftSize;
+        const samplingRate = CONFIG.targetFps;
+        
+        const signalSlice = new Float32Array(N);
+        for (let i = 0; i < N; i++) {
+            const ptr = (historyIndex - N + i + CONFIG.historyLen * 2) % CONFIG.historyLen;
+            signalSlice[i] = detrendedHistory[ptr];
+        }
+
+        // Hanning window to prevent spectral leakage
+        for (let i = 0; i < N; i++) {
+            const hann = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
+            signalSlice[i] *= hann;
+        }
+
+        const minFreq = 0.10; // 6 RPM
+        const maxFreq = 0.70; // 42 RPM
+        const freqStep = 0.01;
+        const numBins = Math.floor((maxFreq - minFreq) / freqStep);
+
+        const powerSpectrum = new Float32Array(numBins);
+        const freqValues = new Float32Array(numBins);
+
+        let maxPower = -1;
+        let peakFreq = 0.25;
+        let totalPower = 0.0001;
+
+        for (let b = 0; b < numBins; b++) {
+            const f = minFreq + b * freqStep;
+            freqValues[b] = f;
+
+            let real = 0;
+            let imag = 0;
+            const omega = (2 * Math.PI * f) / samplingRate;
+
+            for (let n = 0; n < N; n++) {
+                const angle = omega * n;
+                real += signalSlice[n] * Math.cos(angle);
+                imag -= signalSlice[n] * Math.sin(angle);
+            }
+
+            const power = (real * real + imag * imag) / N;
+            powerSpectrum[b] = power;
+            totalPower += power;
+
+            if (power > maxPower) {
+                maxPower = power;
+                peakFreq = f;
+            }
+        }
+
+        const snr = maxPower > 0 ? 10 * Math.log10(maxPower / (totalPower / numBins + 0.00001)) : 0;
+        const confidence = Math.min(99, Math.max(10, Math.round(snr * 4.5)));
+
+        return {
+            peakFreq: peakFreq,
+            rpm: peakFreq * 60,
+            powerSpectrum: powerSpectrum,
+            freqValues: freqValues,
+            maxPower: maxPower,
+            snr: snr,
+            confidence: confidence
+        };
+    }
+
+    function drawOscilloscope() {
+        const w = waveCanvas.width = waveCanvas.offsetWidth * window.devicePixelRatio;
+        const h = waveCanvas.height = waveCanvas.offsetHeight * window.devicePixelRatio;
+
+        waveCtx.fillStyle = '#090d16';
+        waveCtx.fillRect(0, 0, w, h);
+
+        waveCtx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+        waveCtx.lineWidth = 1;
+        const numGridY = 4;
+        for (let i = 1; i < numGridY; i++) {
+            const y = (h / numGridY) * i;
+            waveCtx.beginPath();
+            waveCtx.moveTo(0, y);
+            waveCtx.lineTo(w, y);
+            waveCtx.stroke();
+        }
+
+        let maxAmp = 0.04;
+        for (let i = 0; i < CONFIG.historyLen; i++) {
+            const absVal = Math.abs(detrendedHistory[i]);
+            if (absVal > maxAmp) maxAmp = absVal;
+        }
+
+        waveCtx.strokeStyle = STATE.isMotionGated ? '#f59e0b' : '#06b6d4';
+        waveCtx.lineWidth = 2.2 * window.devicePixelRatio;
+        waveCtx.lineJoin = 'round';
+        waveCtx.beginPath();
+
+        const len = CONFIG.historyLen;
+        const centerY = h / 2;
+        const scaleY = (h * 0.42) / maxAmp;
+
+        for (let i = 0; i < len; i++) {
+            const ptr = (historyIndex + i) % len;
+            const x = (i / (len - 1)) * w;
+            const val = detrendedHistory[ptr];
+            const y = centerY - val * scaleY;
+
+            if (i === 0) waveCtx.moveTo(x, y);
+            else waveCtx.lineTo(x, y);
+        }
+        waveCtx.stroke();
+
+        // Pulsing head
+        const lastX = w - 4;
+        const lastVal = detrendedHistory[(historyIndex - 1 + len) % len];
+        const lastY = centerY - lastVal * scaleY;
+
+        waveCtx.fillStyle = STATE.isMotionGated ? '#f59e0b' : '#00f0a8';
+        waveCtx.beginPath();
+        waveCtx.arc(lastX, lastY, 4 * window.devicePixelRatio, 0, Math.PI * 2);
+        waveCtx.fill();
+    }
+
+    function drawFftSpectrum(fftResult) {
+        const w = fftCanvas.width = fftCanvas.offsetWidth * window.devicePixelRatio;
+        const h = fftCanvas.height = fftCanvas.offsetHeight * window.devicePixelRatio;
+
+        fftCtx.fillStyle = '#090d16';
+        fftCtx.fillRect(0, 0, w, h);
+
+        if (!fftResult || !fftResult.powerSpectrum) return;
+
+        const spec = fftResult.powerSpectrum;
+        const numBars = spec.length;
+        const barWidth = w / numBars;
+        const maxP = fftResult.maxPower || 1;
+
+        for (let i = 0; i < numBars; i++) {
+            const barH = (spec[i] / maxP) * (h * 0.85);
+            const x = i * barWidth;
+            const y = h - barH;
+
+            const isPeak = Math.abs(fftResult.freqValues[i] - fftResult.peakFreq) < 0.015;
+            fftCtx.fillStyle = isPeak ? '#f59e0b' : '#334155';
+            fftCtx.fillRect(x, y, Math.max(1, barWidth - 1), barH);
+        }
+
+        fftCtx.font = `${10 * window.devicePixelRatio}px JetBrains Mono, monospace`;
+        fftCtx.fillStyle = '#f59e0b';
+        fftCtx.fillText(`${(fftResult.peakFreq * 60).toFixed(1)} RPM`, 8 * window.devicePixelRatio, 18 * window.devicePixelRatio);
+    }
+
+    const rpmDisplay = document.getElementById('rpmDisplay');
+    const freqDisplay = document.getElementById('freqDisplay');
+    const rateClassification = document.getElementById('rateClassification');
+    const coherenceMetric = document.getElementById('coherenceMetric');
+    const snrDisplay = document.getElementById('snrDisplay');
+    const confDisplay = document.getElementById('confDisplay');
+    const artifactRejectionCount = document.getElementById('artifactRejectionCount');
+    const alarmBadge = document.getElementById('alarmBadge');
+    const fpsReadout = document.getElementById('fpsReadout');
+    const procTimeReadout = document.getElementById('procTimeReadout');
+    const motionStatusBadge = document.getElementById('motionStatusBadge');
+    const artifactWarningBanner = document.getElementById('artifactWarningBanner');
+    const motionEnergyVal = document.getElementById('motionEnergyVal');
+    const motionEnergyBar = document.getElementById('motionEnergyBar');
+    const gateTripRatio = document.getElementById('gateTripRatio');
+    const thresholdMarkerLine = document.getElementById('thresholdMarkerLine');
+
+    function updateUiTelemetry(fft) {
+        // Update Motion Energy meter & Threshold position
+        const energyPct = Math.min(100, Math.max(1, (STATE.motionEnergy / 1.0) * 100));
+        const threshPct = Math.min(100, Math.max(1, (PARAMS.motionGate / 1.0) * 100));
+        motionEnergyBar.style.width = `${energyPct}%`;
+        thresholdMarkerLine.style.left = `${threshPct}%`;
+
+        const ratio = (STATE.motionEnergy / Math.max(0.001, PARAMS.motionGate)).toFixed(2);
+        gateTripRatio.textContent = `Ratio: ${ratio}x`;
+
+        if (STATE.isMotionGated) {
+            motionEnergyBar.className = 'h-full bg-amber-500 transition-all duration-75';
+            motionEnergyVal.textContent = `${STATE.motionEnergy.toFixed(3)} (ARTIFACT GATED)`;
+            motionEnergyVal.className = 'text-amber-400 font-bold';
+            motionStatusBadge.textContent = 'MOTION REJECT';
+            motionStatusBadge.className = 'text-amber-400 font-medium';
+            artifactWarningBanner.classList.remove('hidden');
+            alarmBadge.classList.remove('hidden');
+            alarmBadge.textContent = 'MOTION BLANK';
+        } else {
+            motionEnergyBar.className = 'h-full bg-emerald-500 transition-all duration-75';
+            motionEnergyVal.textContent = `${STATE.motionEnergy.toFixed(3)} (STABLE)`;
+            motionEnergyVal.className = 'text-emerald-400 font-bold';
+            motionStatusBadge.textContent = 'STABLE';
+            motionStatusBadge.className = 'text-emerald-400 font-medium';
+            artifactWarningBanner.classList.add('hidden');
+            alarmBadge.classList.add('hidden');
+        }
+
+        artifactRejectionCount.textContent = STATE.artifactBlankCount.toString();
+
+        if (fft.confidence >= 25 && !STATE.isMotionGated) {
+            STATE.currentBpm = fft.rpm;
+            STATE.dominantFreq = fft.peakFreq;
+
+            rpmDisplay.textContent = fft.rpm.toFixed(1);
+            freqDisplay.textContent = fft.peakFreq.toFixed(2);
+
+            if (fft.rpm < 12.0) {
+                rateClassification.textContent = 'Bradypnea (<12)';
+                rateClassification.className = 'text-amber-400 font-semibold';
+            } else if (fft.rpm > 20.0) {
+                rateClassification.textContent = 'Tachypnea (>20)';
+                rateClassification.className = 'text-rose-400 font-semibold';
+            } else {
+                rateClassification.textContent = 'Normal (Eupnea)';
+                rateClassification.className = 'text-emerald-400 font-semibold';
+            }
+        }
+
+        coherenceMetric.textContent = STATE.coherenceAvg.toFixed(2);
+        snrDisplay.textContent = `${fft.snr.toFixed(1)} dB`;
+        confDisplay.textContent = `${fft.confidence}%`;
+        fpsReadout.textContent = Math.round(STATE.fps).toString().padStart(2, '0');
+        procTimeReadout.textContent = `${STATE.procTime.toFixed(1)}ms`;
+    }
+
+    let lastFrameTime = performance.now();
+    let frameTimes = [];
+
+    function mainProcessingLoop() {
+        const startTime = performance.now();
+
+        if (webcamVideo.readyState >= 2) {
+            // Draw webcam frame scaled to 320x240
+            procCtx.drawImage(webcamVideo, 0, 0, CONFIG.width, CONFIG.height);
+            const sourceImageData = procCtx.getImageData(0, 0, CONFIG.width, CONFIG.height);
+
+            // Execute Eulerian Anti-Artifact Pipeline
+            const result = processEulerianFrame(sourceImageData);
+            STATE.coherenceAvg = result.avgCoherence;
+
+            // Deconvolve 1D breathing waveform
+            pushSignalSample(result.roiSignal, STATE.isMotionGated);
+
+            // Breath chime peak trigger
+            const curSample = detrendedHistory[(historyIndex - 1 + CONFIG.historyLen) % CONFIG.historyLen];
+            const prevSample = detrendedHistory[(historyIndex - 2 + CONFIG.historyLen) % CONFIG.historyLen];
+            if (!STATE.isMotionGated && curSample > 0.015 && prevSample <= 0.015 && (performance.now() - STATE.lastBreathPeak) > 1300) {
+                STATE.lastBreathPeak = performance.now();
+                playVitalBreathChime();
+            }
+
+            // Render to view canvas
+            viewCanvas.width = CONFIG.width;
+            viewCanvas.height = CONFIG.height;
+            viewCtx.drawImage(procCanvas, 0, 0);
+
+            frameCounter++;
+            if (frameCounter % 4 === 0) {
+                const fft = computeRespiratoryFft();
+                drawOscilloscope();
+                drawFftSpectrum(fft);
+                updateUiTelemetry(fft);
+            }
+        }
+
+        const now = performance.now();
+        STATE.procTime = now - startTime;
+
+        const delta = now - lastFrameTime;
+        lastFrameTime = now;
+        frameTimes.push(1000 / delta);
+        if (frameTimes.length > 20) frameTimes.shift();
+        STATE.fps = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+
+        requestAnimationFrame(mainProcessingLoop);
+    }
+
+    const cameraSelect = document.getElementById('cameraSelect');
+    const cameraInfoText = document.getElementById('cameraInfoText');
+
+    async function enumerateCameras() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(d => d.kind === 'videoinput');
+            cameraSelect.innerHTML = '';
+            
+            if (videoDevices.length === 0) {
+                const opt = document.createElement('option');
+                opt.text = 'Default Webcam';
+                cameraSelect.appendChild(opt);
+                return;
+            }
+
+            videoDevices.forEach((dev, idx) => {
+                const opt = document.createElement('option');
+                opt.value = dev.deviceId;
+                opt.text = dev.label || `Camera ${idx + 1}`;
+                cameraSelect.appendChild(opt);
+            });
+        } catch (e) {
+            console.debug('Error listing cameras', e);
+        }
+    }
+
+    async function startWebcam(deviceId = null) {
+        if (webcamVideo.srcObject) {
+            webcamVideo.srcObject.getTracks().forEach(t => t.stop());
+        }
+
+        const constraints = {
+            video: {
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                facingMode: 'user'
+            },
+            audio: false
+        };
+
+        if (deviceId) {
+            constraints.video.deviceId = { exact: deviceId };
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            webcamVideo.srcObject = stream;
+            await webcamVideo.play();
+            STATE.cameraReady = true;
+            isFirstFrame = true;
+            cameraInfoText.textContent = 'Webcam Online (640x480)';
+            showToast('Webcam online. Position chest in the green reticle.');
+            await enumerateCameras();
+        } catch (err) {
+            console.error(err);
+            cameraInfoText.textContent = 'Camera Access Denied';
+            showToast('Please enable webcam permissions to proceed.');
+        }
+    }
+
+    cameraSelect.addEventListener('change', (e) => {
+        startWebcam(e.target.value);
+    });
+
+    document.getElementById('btnRestartCam').addEventListener('click', () => {
+        startWebcam(cameraSelect.value || null);
+    });
+
+    const alphaSlider = document.getElementById('alphaSlider');
+    const alphaValText = document.getElementById('alphaValText');
+    const activeModeLabel = document.getElementById('activeModeLabel');
+
+    alphaSlider.addEventListener('input', (e) => {
+        PARAMS.alpha = parseFloat(e.target.value);
+        alphaValText.textContent = `${PARAMS.alpha}x`;
+        activeModeLabel.textContent = `ANTI-BLOOM EVM (α=${PARAMS.alpha}x)`;
+    });
+
+    const motionGateSlider = document.getElementById('motionGateSlider');
+    const motionGateText = document.getElementById('motionGateText');
+    const motionGateMarker = document.getElementById('motionGateMarker');
+
+    motionGateSlider.addEventListener('input', (e) => {
+        PARAMS.motionGate = parseFloat(e.target.value);
+        motionGateText.textContent = PARAMS.motionGate.toFixed(2);
+        motionGateMarker.textContent = `Threshold: ${PARAMS.motionGate.toFixed(2)}`;
+    });
+
+    const btnGateSoft = document.getElementById('btnGateSoft');
+    const btnGateHard = document.getElementById('btnGateHard');
+    const btnGateBypass = document.getElementById('btnGateBypass');
+    const gateModeLabel = document.getElementById('gateModeLabel');
+
+    function setGateMode(mode) {
+        PARAMS.gateMode = mode;
+        const activeClass = 'px-2 py-1 text-[11px] font-mono rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        const inactiveClass = 'px-2 py-1 text-[11px] font-mono rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200';
+
+        btnGateSoft.className = mode === 'soft' ? activeClass : inactiveClass;
+        btnGateHard.className = mode === 'hard' ? activeClass : inactiveClass;
+        btnGateBypass.className = mode === 'bypass' ? activeClass : inactiveClass;
+
+        gateModeLabel.textContent = mode === 'soft' ? 'Soft AGC' : (mode === 'hard' ? 'Hard Freeze' : 'Bypass Gate');
+        showToast(`Artifact gate mode: ${gateModeLabel.textContent}`);
+    }
+
+    btnGateSoft.addEventListener('click', () => setGateMode('soft'));
+    btnGateHard.addEventListener('click', () => setGateMode('hard'));
+    btnGateBypass.addEventListener('click', () => setGateMode('bypass'));
+
+    const clampSlider = document.getElementById('clampSlider');
+    const clampValText = document.getElementById('clampValText');
+    clampSlider.addEventListener('input', (e) => {
+        PARAMS.softClamp = parseFloat(e.target.value);
+        clampValText.textContent = PARAMS.softClamp.toFixed(1);
+    });
+
+    const bandpassSpeedSlider = document.getElementById('bandpassSpeedSlider');
+    const bandpassSpeedText = document.getElementById('bandpassSpeedText');
+    bandpassSpeedSlider.addEventListener('input', (e) => {
+        PARAMS.bandpassGamma = parseFloat(e.target.value);
+        bandpassSpeedText.textContent = PARAMS.bandpassGamma.toFixed(2);
+    });
+
+    const coherenceThSlider = document.getElementById('coherenceThSlider');
+    const coherenceThText = document.getElementById('coherenceThText');
+    coherenceThSlider.addEventListener('input', (e) => {
+        PARAMS.coherenceThreshold = parseFloat(e.target.value);
+        coherenceThText.textContent = PARAMS.coherenceThreshold.toFixed(2);
+    });
+
+    const gradientScaleSlider = document.getElementById('gradientScaleSlider');
+    const gradientScaleText = document.getElementById('gradientScaleText');
+    gradientScaleSlider.addEventListener('input', (e) => {
+        PARAMS.gradientScale = parseFloat(e.target.value);
+        gradientScaleText.textContent = `${PARAMS.gradientScale.toFixed(1)}x`;
+    });
+
+    document.getElementById('btnResetParams').addEventListener('click', () => {
+        PARAMS.alpha = 30.0;
+        PARAMS.motionGate = 0.16;
+        PARAMS.softClamp = 8.0;
+        PARAMS.bandpassGamma = 0.18;
+        PARAMS.coherenceThreshold = 0.10;
+        PARAMS.gradientScale = 1.2;
+        setGateMode('soft');
+
+        alphaSlider.value = 30;
+        alphaValText.textContent = '30x';
+        motionGateSlider.value = 0.16;
+        motionGateText.textContent = '0.16';
+        motionGateMarker.textContent = 'Threshold: 0.16';
+        clampSlider.value = 8.0;
+        clampValText.textContent = '8.0';
+        bandpassSpeedSlider.value = 0.18;
+        bandpassSpeedText.textContent = '0.18';
+        coherenceThSlider.value = 0.10;
+        coherenceThText.textContent = '0.10';
+        gradientScaleSlider.value = 1.2;
+        gradientScaleText.textContent = '1.2x';
+
+        showToast('Algorithm parameters reset to defaults.');
+    });
+
+    function syncRoiBoxDom() {
+        roiBox.style.left = `${ROI.x * 100}%`;
+        roiBox.style.top = `${ROI.y * 100}%`;
+        roiBox.style.width = `${ROI.w * 100}%`;
+        roiBox.style.height = `${ROI.h * 100}%`;
+    }
+
+    document.getElementById('btnCenterRoi').addEventListener('click', () => {
+        ROI.x = 0.28;
+        ROI.y = 0.22;
+        ROI.w = 0.44;
+        ROI.h = 0.50;
+        syncRoiBoxDom();
+        showToast('Chest ROI centered.');
+    });
+
+    roiBox.addEventListener('mousedown', (e) => {
+        if (e.target === roiResizeHandle) {
+            ROI.isResizing = true;
+        } else {
+            ROI.isDragging = true;
+        }
+        ROI.dragStartX = e.clientX;
+        ROI.dragStartY = e.clientY;
+        e.stopPropagation();
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!ROI.isDragging && !ROI.isResizing) return;
+        const rect = canvasContainer.getBoundingClientRect();
+        const dx = (e.clientX - ROI.dragStartX) / rect.width;
+        const dy = (e.clientY - ROI.dragStartY) / rect.height;
+
+        if (ROI.isDragging) {
+            ROI.x = Math.max(0.02, Math.min(0.98 - ROI.w, ROI.x + dx));
+            ROI.y = Math.max(0.02, Math.min(0.98 - ROI.h, ROI.y + dy));
+            ROI.dragStartX = e.clientX;
+            ROI.dragStartY = e.clientY;
+            syncRoiBoxDom();
+        } else if (ROI.isResizing) {
+            ROI.w = Math.max(0.12, Math.min(1.0 - ROI.x, ROI.w + dx));
+            ROI.h = Math.max(0.12, Math.min(1.0 - ROI.y, ROI.h + dy));
+            ROI.dragStartX = e.clientX;
+            ROI.dragStartY = e.clientY;
+            syncRoiBoxDom();
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        ROI.isDragging = false;
+        ROI.isResizing = false;
+    });
+
+    // Touch events for mobile/tablet ICU support
+    roiBox.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        if (e.target === roiResizeHandle) ROI.isResizing = true;
+        else ROI.isDragging = true;
+        ROI.dragStartX = touch.clientX;
+        ROI.dragStartY = touch.clientY;
+        e.preventDefault();
+    });
+
+    window.addEventListener('touchmove', (e) => {
+        if (!ROI.isDragging && !ROI.isResizing) return;
+        const touch = e.touches[0];
+        const rect = canvasContainer.getBoundingClientRect();
+        const dx = (touch.clientX - ROI.dragStartX) / rect.width;
+        const dy = (touch.clientY - ROI.dragStartY) / rect.height;
+
+        if (ROI.isDragging) {
+            ROI.x = Math.max(0.02, Math.min(0.98 - ROI.w, ROI.x + dx));
+            ROI.y = Math.max(0.02, Math.min(0.98 - ROI.h, ROI.y + dy));
+            ROI.dragStartX = touch.clientX;
+            ROI.dragStartY = touch.clientY;
+            syncRoiBoxDom();
+        } else if (ROI.isResizing) {
+            ROI.w = Math.max(0.12, Math.min(1.0 - ROI.x, ROI.w + dx));
+            ROI.h = Math.max(0.12, Math.min(1.0 - ROI.y, ROI.h + dy));
+            ROI.dragStartX = touch.clientX;
+            ROI.dragStartY = touch.clientY;
+            syncRoiBoxDom();
+        }
+    });
+
+    window.addEventListener('touchend', () => {
+        ROI.isDragging = false;
+        ROI.isResizing = false;
+    });
+
+    const modeButtons = {
+        magnified: document.getElementById('btnModeMagnified'),
+        coherence: document.getElementById('btnModeCoherence'),
+        bandpass: document.getElementById('btnModeBandpass'),
+        raw: document.getElementById('btnModeRaw')
+    };
+
+    function setDisplayMode(mode) {
+        STATE.displayMode = mode;
+        Object.keys(modeButtons).forEach(k => {
+            if (k === mode) {
+                modeButtons[k].className = 'px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+            } else {
+                modeButtons[k].className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-slate-200';
+            }
+        });
+
+        const labels = {
+            magnified: `ANTI-BLOOM EVM (α=${PARAMS.alpha}x)`,
+            coherence: 'COHERENCE MASK C(x,y)',
+            bandpass: 'BANDPASS MOTION FIELD',
+            raw: 'RAW CAMERA FEED'
+        };
+        activeModeLabel.textContent = labels[mode];
+    }
+
+    modeButtons.magnified.addEventListener('click', () => setDisplayMode('magnified'));
+    modeButtons.coherence.addEventListener('click', () => setDisplayMode('coherence'));
+    modeButtons.bandpass.addEventListener('click', () => setDisplayMode('bandpass'));
+    modeButtons.raw.addEventListener('click', () => setDisplayMode('raw'));
+
+    const btnAudioTone = document.getElementById('btnAudioTone');
+    const audioLabel = document.getElementById('audioLabel');
+    const audioIcon = document.getElementById('audioIcon');
+
+    btnAudioTone.addEventListener('click', () => {
+        STATE.audioEnabled = !STATE.audioEnabled;
+        if (STATE.audioEnabled) {
+            audioLabel.textContent = 'Audio Chime Active';
+            btnAudioTone.className = 'flex-1 py-2 px-3 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs flex items-center justify-center gap-2';
+            audioIcon.classList.add('text-emerald-400');
+            showToast('Audio chime enabled on inhalation peak.');
+        } else {
+            audioLabel.textContent = 'Mute Audio Chime';
+            btnAudioTone.className = 'flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-mono text-xs flex items-center justify-center gap-2';
+            audioIcon.classList.remove('text-emerald-400');
+            showToast('Audio chime muted.');
+        }
+    });
+
+    document.getElementById('btnExportCsv').addEventListener('click', () => {
+        let csvContent = 'data:text/csv;charset=utf-8,Timestamp_ms,Raw_Deconvolved,Detrended_Filtered\n';
+        const len = CONFIG.historyLen;
+        for (let i = 0; i < len; i++) {
+            const ptr = (historyIndex + i) % len;
+            csvContent += `${timestamps[ptr].toFixed(2)},${signalHistory[ptr].toFixed(6)},${detrendedHistory[ptr].toFixed(6)}\n`;
+        }
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement('a');
+        link.setAttribute('href', encodedUri);
+        link.setAttribute('download', `Eulerian_Respiration_${Date.now()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Respiratory waveform exported as CSV.');
+    });
+
+    function showToast(msg) {
+        const toast = document.getElementById('toastNotification');
+        const text = document.getElementById('toastMessage');
+        text.textContent = msg;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3200);
+    }
+
+    window.onload = function () {
+        syncRoiBoxDom();
+        startWebcam();
+        mainProcessingLoop();
+    };
+    </script>
+</body>
+</html>

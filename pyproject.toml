@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sttensor"
+version = "0.1.0"
+description = "Spatio-Temporal Gradient and Structure Tensor Analysis with Adaptive Localization Filtering"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Gabriel M. Queiroz"}
+]
+keywords = [
+    "computer-vision",
+    "gradient-temporal-difference",
+    "structure-tensor",
+    "eigen-decomposition",
+    "adaptive-filtering",
+    "motion-analysis",
+    "eulerian-respiratory"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+]
+
+[project.optional-dependencies]
+video = [
+    "opencv-python>=4.5"
+]
+apps = [
+    "opencv-python>=4.5",
+    "flask>=2.0",
+]
+dev = [
+    "pytest>=7.0",
+    "opencv-python>=4.5",
+]
+all = [
+    "opencv-python>=4.5",
+    "flask>=2.0",
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/GabrielMQueiroz/Gradient_Respiratory"
+Repository = "https://github.com/GabrielMQueiroz/Gradient_Respiratory"
+Issues = "https://github.com/GabrielMQueiroz/Gradient_Respiratory/issues"
+Documentation = "https://github.com/GabrielMQueiroz/Gradient_Respiratory#readme"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sttensor*"]
+exclude = ["tests*", "apps*", "experiments*", "docs*", "notebooks*", "paper*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]

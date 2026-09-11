@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software or method in your research, please cite it as below."
+authors:
+  - family-names: "Queiroz"
+    given-names: "Gabriel M."
+title: "Adaptive Spatio-Temporal Gradient Difference Tensors for Edge-Preserving Motion Analysis"
+version: 0.1.0
+date-released: 2026-01-01
+url: "https://github.com/GabrielMQueiroz/Gradient_Respiratory"
+repository-code: "https://github.com/GabrielMQueiroz/Gradient_Respiratory"
+keywords:
+  - "computer-vision"
+  - "structure-tensor"
+  - "motion-analysis"
+  - "anisotropic-diffusion"
+  - "eulerian-motion"
+  - "respiratory-monitoring"
+license: "MIT"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Queiroz"
+      given-names: "Gabriel M."
+  title: "Adaptive Spatio-Temporal Gradient Difference Tensors for Edge-Preserving Motion Analysis"
+  year: 2026
+  url: "https://github.com/GabrielMQueiroz/Gradient_Respiratory"
