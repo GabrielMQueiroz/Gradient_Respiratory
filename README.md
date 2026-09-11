@@ -41,7 +41,7 @@ pip install -e ".[all]"
 - **Spatial gradient**: Sobel operator applied to a single frame.
 - **Temporal difference**: Pixel-wise difference between consecutive frames.
 - **Gradient difference** (`D`): Difference between spatial gradients of consecutive frames.  
-  $mathbf{D} = \nabla I_t - \nabla I_{t-1} = \nabla (I_t - I_{t-1})$
+  $$mathbf{D} = \nabla I_t - \nabla I_{t-1} = \nabla (I_t - I_{t-1})$$
 - **Structure tensor** (`T`): Outer product of gradients, optionally smoothed.  
   $mathbf{T} = G_\sigma * (\mathbf{D} \mathbf{D}^T) \quad \text{or} \quad \mathbf{T} = G_\sigma * (\nabla I \nabla I^T$
 - **Eigen-decomposition**: Eigenvalues $lambda_1 \ge \lambda_2 \ge 0$ and eigenvectors of the 2×2 tensor.
