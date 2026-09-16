@@ -64,22 +64,28 @@ class SGEMDLayer(nn.Module):
     def _compute_coherence_mask(self, gx: torch.Tensor, gy: torch.Tensor):
         """
         Compute the coherence mask based on the structure tensor.
-        C_scaled = [ k^4(J_xx - J_yy)^2 + 4 k^4 J_xy^2 ] / [ k^4(J_xx + J_yy)^2 + eps ]
+        Uses softplus on k to guarantee positivity and applies scale factor
+        to gradients before coherence formulation with noise-floor thresholding.
         """
-        k4 = self.k ** 4
+        # Constrain k to be positive
+        k_val = F.softplus(self.k) + 1e-4
+        
+        # Scale gradients by edge sensitivity factor k
+        gx_s = gx * k_val
+        gy_s = gy * k_val
         
         # Elements of the structure tensor (local neighborhood)
-        # We use a 3x3 average pool (multiplied by 9 to approximate sum)
-        # to gather the local neighborhood for the structure tensor.
-        J_xx = F.avg_pool2d(gx * gx, kernel_size=3, stride=1, padding=1) * 9.0
-        J_yy = F.avg_pool2d(gy * gy, kernel_size=3, stride=1, padding=1) * 9.0
-        J_xy = F.avg_pool2d(gx * gy, kernel_size=3, stride=1, padding=1) * 9.0
+        J_xx = F.avg_pool2d(gx_s * gx_s, kernel_size=3, stride=1, padding=1) * 9.0
+        J_yy = F.avg_pool2d(gy_s * gy_s, kernel_size=3, stride=1, padding=1) * 9.0
+        J_xy = F.avg_pool2d(gx_s * gy_s, kernel_size=3, stride=1, padding=1) * 9.0
         
-        num = k4 * ((J_xx - J_yy)**2 + 4 * J_xy**2)
-        den = k4 * (J_xx + J_yy)**2 + self.epsilon
+        diff = J_xx - J_yy
+        trace = J_xx + J_yy
+        num = diff * diff + 4.0 * J_xy * J_xy
+        den = trace * trace + self.epsilon
         
         coherence = num / den
-        return coherence
+        return torch.clamp(coherence, 0.0, 1.0)
 
     def forward(self, I_t: torch.Tensor, F_t: torch.Tensor):
         """
@@ -106,7 +112,8 @@ class SGEMDLayer(nn.Module):
         
         # 3. Apply Eulerian Micro-Displacement
         # M(I, t) = I(t) + alpha * Mask(J) * tanh(F_t(I(t)) / tau)
-        magnified = I_t + self.alpha * mask_J * torch.tanh(F_t / self.tau)
+        tau_val = F.softplus(self.tau) + 1e-4
+        magnified = I_t + self.alpha * mask_J * torch.tanh(F_t / tau_val)
         
         if is_unbatched:
             magnified = magnified.squeeze(0)

@@ -116,6 +116,43 @@ def coherence(eigvals: np.ndarray, eps: float = 1e-6) -> np.ndarray:
     return np.clip(coh, 0.0, 1.0)
 
 
+def fast_coherence(T: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """
+    Compute structure tensor coherence directly from tensor matrix components
+    without requiring full eigen-decomposition or trigonometric operations.
+
+    Algebraic equivalence:
+        hypot(Txx - Tyy, 2*Txy) == lambda1 - lambda2
+        Txx + Tyy == lambda1 + lambda2
+
+    Parameters
+    ----------
+    T : np.ndarray
+        Structure tensor array of shape (..., 2, 2).
+    eps : float, default=1e-6
+        Regularization constant to prevent division by zero in flat regions.
+
+    Returns
+    -------
+    np.ndarray
+        Coherence array of shape (...) with values in [0, 1].
+    """
+    T_arr = np.asarray(T)
+    if T_arr.ndim < 2 or T_arr.shape[-2:] != (2, 2):
+        raise ValueError(
+            f"T must have shape (..., 2, 2), but got {T_arr.shape}."
+        )
+
+    a = T_arr[..., 0, 0]
+    b = 0.5 * (T_arr[..., 0, 1] + T_arr[..., 1, 0])
+    c = T_arr[..., 1, 1]
+
+    num = np.hypot(a - c, 2.0 * b)
+    den = a + c + eps
+    coh = num / den
+    return np.clip(coh, 0.0, 1.0)
+
+
 def orientation(eigvecs: np.ndarray, modulo_pi: bool = False) -> np.ndarray:
     """
     Compute orientation angle (in radians) of the major eigenvector v1.

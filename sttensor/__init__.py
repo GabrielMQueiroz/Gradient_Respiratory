@@ -11,6 +11,16 @@ from . import eigen
 from . import filters
 from . import utils
 from . import multiscale
+from . import eulerian
+from . import optical_flow
+from . import benchmarks
+
+try:
+    from . import nn
+    from .nn import SGEMDLayer
+    _HAS_NN = True
+except ImportError:
+    _HAS_NN = False
 
 from .gradients import (
     sobel,
@@ -24,6 +34,7 @@ from .tensor import (
 from .eigen import (
     decompose_tensor,
     coherence,
+    fast_coherence,
     orientation,
 )
 from .filters import (
@@ -40,8 +51,17 @@ from .multiscale import (
     multiscale_gradient_difference,
     multiscale_tensor_fusion,
 )
+from .eulerian import (
+    EulerianConfig,
+    EulerianEngine,
+)
+from .optical_flow import (
+    farneback_flow,
+    flow_to_colorwheel,
+    flow_divergence_and_curl,
+)
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "gradients",
@@ -49,6 +69,10 @@ __all__ = [
     "eigen",
     "filters",
     "utils",
+    "multiscale",
+    "eulerian",
+    "optical_flow",
+    "benchmarks",
     # gradients
     "sobel",
     "temporal_difference",
@@ -59,6 +83,7 @@ __all__ = [
     # eigen
     "decompose_tensor",
     "coherence",
+    "fast_coherence",
     "orientation",
     # filters
     "adaptive_gaussian_filter",
@@ -68,8 +93,17 @@ __all__ = [
     "load_video",
     "visualize_tensor",
     # multiscale
-    "multiscale",
     "build_gaussian_pyramid",
     "multiscale_gradient_difference",
     "multiscale_tensor_fusion",
+    # eulerian
+    "EulerianConfig",
+    "EulerianEngine",
+    # optical_flow
+    "farneback_flow",
+    "flow_to_colorwheel",
+    "flow_divergence_and_curl",
 ]
+
+if _HAS_NN:
+    __all__.extend(["nn", "SGEMDLayer"])

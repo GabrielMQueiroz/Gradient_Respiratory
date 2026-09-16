@@ -5,7 +5,13 @@ import matplotlib as mpl
 from pathlib import Path
 from typing import List, Tuple, Optional, Callable, Any
 
-def measure_latency(func: Callable, *args: Any, n_trials: int = 100, warmup: int = 5) -> Tuple[float, float]:
+def measure_latency(
+    func: Callable,
+    *args: Any,
+    n_trials: int = 100,
+    warmup: int = 5,
+    **kwargs: Any,
+) -> Tuple[float, float]:
     """
     Measure the execution time of a function.
     
@@ -14,17 +20,18 @@ def measure_latency(func: Callable, *args: Any, n_trials: int = 100, warmup: int
         *args: Arguments to pass to the function.
         n_trials: Number of execution trials.
         warmup: Number of warmup executions before measuring.
+        **kwargs: Keyword arguments to pass to the function.
         
     Returns:
         Tuple containing mean execution time and standard deviation in milliseconds.
     """
     for _ in range(warmup):
-        func(*args)
+        func(*args, **kwargs)
         
     times = []
     for _ in range(n_trials):
         start = time.perf_counter()
-        func(*args)
+        func(*args, **kwargs)
         end = time.perf_counter()
         times.append((end - start) * 1000.0)  # convert to ms
         
