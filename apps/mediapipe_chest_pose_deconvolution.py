@@ -135,6 +135,7 @@ class MediaPipeChestExtractor:
         self.is_tasks_api = False
         self.last_quad = None
         self.smoothing = 0.65  # EMA smoothing factor for bounding quad stability
+        self.freeze_threshold = 3.5  # Pixels of movement required to break the positional lock
         self.status_msg = "INITIALIZING POSE DETECTOR..."
 
         # 1. Modern MediaPipe Tasks Vision (v0.10.15+)
@@ -280,9 +281,16 @@ class MediaPipeChestExtractor:
         p4 = chest_center - shoulder_dir * chest_half_w + down_dir * chest_half_h
         quad = np.array([p1, p2, p3, p4], dtype=np.float32)
 
-        # EMA quad stabilization against high-frequency jitter
+        # Adaptive Quad Stabilization (Anti-Jitter Freeze)
         if self.last_quad is not None:
-            quad = self.smoothing * quad + (1.0 - self.smoothing) * self.last_quad
+            # Calculate the average displacement of the 4 quad corners
+            avg_shift = float(np.mean(np.linalg.norm(quad - self.last_quad, axis=1)))
+            if avg_shift < self.freeze_threshold:
+                # If motion is below threshold, hard-freeze the quad to prevent Eulerian noise
+                quad = self.last_quad
+            else:
+                # If moving significantly, apply smooth EMA tracking
+                quad = self.smoothing * quad + (1.0 - self.smoothing) * self.last_quad
         self.last_quad = quad
 
         return quad, mode_label, (mid_shoulder, chest_center, torso_vector_vis)

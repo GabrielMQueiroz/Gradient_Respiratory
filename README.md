@@ -322,7 +322,8 @@ Gradient_Respiratory/
 │   └── bibliography.bib              # BibTeX references
 ├── models/                           # Pretrained task models (pose_landmarker_lite.task)
 ├── docs/                             # Comprehensive mathematical specifications
-│   └── GRADIENT_TEMPORAL_DIFFERENCE.md # Theoretical derivation & proof
+│   ├── GRADIENT_TEMPORAL_DIFFERENCE.md # Theoretical derivation & proof
+│   └── shm_applications.md           # The Linear Algebra of Eulerian Structural Deconvolution
 ├── videos/                           # Sample test sequences
 ├── pyproject.toml                    # PEP 621 package build configuration
 ├── setup.py                          # Setup configuration wrapper
